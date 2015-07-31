@@ -1,0 +1,59 @@
+#!/usr/bin/expect
+
+# Set dbg to 1 to enable debugging output
+set dbg 0
+# Each name in the keytypes list creates a keypair
+set keytypes {internal external deployed}
+# Directory where keypairs should be stored
+set keydir "~/.ssh/keys"
+
+if { $dbg == 0 } {
+    log_user 0
+} else { 
+    exp_internal 1
+}
+
+# Create dir if it doesn't exist
+set dir [file nativename $keydir]
+file mkdir $dir
+
+# Prompt the user for a passphrase
+set timeout -1
+stty -echo
+send_user -- "Enter a password for your private keys: "
+expect_user -re "(.*)\n"
+send_user "\n"
+stty echo
+set pass $expect_out(1,string)
+
+# Create the keys
+set timeout 1
+foreach keytype {internal external deployed} {
+    set tag "[exec whoami]-$keytype-[exec date +%Y%m%d]"
+    spawn ssh-keygen -C $tag -f $dir/$tag
+    expect {
+        "Overwrite (y/n)?" { 
+          send "y\r" 
+          exp_continue
+        }
+        "Enter passphrase (empty for no passphrase):" {
+          send "$pass\r"
+          exp_continue
+        }
+        "Enter same passphrase again:" {
+          send "$pass\r"
+          exp_continue
+        }
+    }
+    catch wait reason
+    set res [lindex $reason 3]
+    if { $res != 0 } { 
+      send_error "\n*** ERROR: KEY CREATION FAILED ***\nYour password may be too short or simple.\nCheck the output below for errors.\n";
+      send_error $expect_out(buffer);
+      send_error "\n"
+      exit 1;
+    }
+}
+send_user "\n*** SUCCESS ***\nKeys created in $dir\n\n"
+spawn ls -l $dir
+interact
